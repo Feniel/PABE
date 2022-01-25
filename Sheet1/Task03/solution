@@ -1,0 +1,23 @@
+#! /usr/bin/env python3
+
+import codecs
+import os
+
+FILESIZE = os.path.getsize("data.bin")
+junk = open("data.bin", "rb")
+
+# first, an unsigned 2 byte integer in Big Endian
+first_nr = int.from_bytes(junk.read(2), byteorder="big", signed=False)
+
+# second and third, two signed 1 byte integers in Little Endian
+second_nr = int.from_bytes(junk.read(1), byteorder="little", signed=True)
+third_nr = int.from_bytes(junk.read(1), byteorder="little", signed=True)
+
+# fourth, a signed 8 byte integer in Big Endian
+fourth_nr = int.from_bytes(junk.read(8), byteorder="big", signed=True)
+
+# fifth, the remainder (filesize-2-1-1-8) is an ASCII representation of a hexadecimal integer
+hex_str = codecs.decode(junk.read(FILESIZE - 12), "ascii")
+fifth_nr = int(hex_str, 16)
+
+print(first_nr + second_nr + third_nr + fourth_nr + fifth_nr)

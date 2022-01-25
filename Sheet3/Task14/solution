@@ -1,0 +1,83 @@
+#! /usr/bin/env python3
+
+'''
+0   -> URL erreichbar
+6   -> ein string ohne leerzeichen in input (also eingabe welche url sein könnte) lößt aber nicht auf 
+255 -> wenn kein input.txt existiert
+3   -> klar ungültiger input (leere Datei oder leerzeichen im input string) format fehler
+1   -> ?
+252 -> ? (input: facebook.com)
+'''
+
+import sys
+import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+data = ""
+
+def main():
+    global data
+
+    # get the url from input.txt
+    try:
+        url = fileReader()
+    # exit with 255 if input.txt can't be opened
+    except:
+        sys.exit(255)
+
+    # do the httpcall
+    uVar1 = httpcall(url)
+    if uVar1 == 0:
+        if data == "":
+            print("-4")
+            sys.exit()
+        else:
+            # theres a function call here in reverseme that doensnt do anything?!
+            print(data)
+            return
+    else:
+        sys.exit(uVar1)
+
+
+def fileReader():
+    # reads the first line of input.txt and returns it
+    try:
+        with open("input.txt", 'r') as input:
+            firstLine = input.readline()
+            firstLine = firstLine.rstrip('\n')
+            return firstLine
+    except:
+        raise
+
+
+def httpcall(url):
+    # curl_easy_setopt(lVar2,0x2712,param_1,0x2712)       <- URL = url
+    # curl_easy_setopt(lVar2,0x71,1,0x71)                 <- Unknown Option = 1
+    # curl_easy_setopt(lVar2,0x40,0,0x40)                 <- SSL_VERIFYPEER = 0
+    # curl_easy_setopt(lVar2,0x51,0,0x51)                 <- SSL_VERIFYHOST = 0
+    # curl_easy_setopt(lVar2,0x34,1,0x34)                 <- FOLLOWLOCATION = 1
+    # curl_easy_setopt(lVar2,0x4e2b,FUN_00159591,0x4e2b)  <- WRITEFUNCTION
+
+    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+    try:
+        r = requests.get(url, verify=False, hooks={
+                         'response': callback_function})
+    except:
+        try:
+            url = "http://"+url
+            r = requests.get(url, verify=False, hooks={
+                         'response': callback_function})
+        except:
+        
+            return 6
+        return 0
+    return 0
+
+
+def callback_function(r, *args, **kwargs):
+    global data
+    data = r.encoding #we could not really figure out what this function is doing so we set a placeholder
+
+
+if __name__ == "__main__":
+    main()

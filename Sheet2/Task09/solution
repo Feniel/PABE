@@ -1,0 +1,40 @@
+#! /usr/bin/env python3
+
+# 08049000 b8 01 00        MOV        EAX,0x1                 #syscall is wrong
+#             00 00
+# 08049005 bb 01 00        MOV        EBX,0x1
+#             00 00
+# 0804900a b9 00 a0        MOV        ECX,flagstring                                   
+#             04 08
+# 0804900f ba 01 00        MOV        EDX,0x1                 #buffer size is wrong
+#             00 00
+# 08049014 90              NOP                                #interrupt is missing here
+# 08049015 90              NOP
+# 08049016 b8 01 00        MOV        EAX,0x1
+#             00 00
+# 0804901b bb 2a 00        MOV        EBX,0x2a
+#             00 00
+# 08049020 cd 80           INT        0x80
+
+
+import subprocess
+reader = open("broken", "r+b")
+
+#change syscall "mov eax, 0x4"
+reader.seek(0x1000)
+toWrite = b'\xb8\x04\x00\x00\x00'
+reader.write(toWrite)
+
+#change length of buffer "mov edx,0x24"
+reader.seek(0x100f)
+toWrite = b'\xba$\x00\x00\x00'
+reader.write(toWrite)
+
+#add interrupt "int 0x80"
+reader.seek(0x1014)
+toWrite = b'\xcd\x80'
+reader.write(toWrite)
+
+reader.close()
+#to print the flag
+subprocess.call(["./broken"])

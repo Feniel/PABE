@@ -1,0 +1,12 @@
+#! /usr/bin/env python3
+
+import subprocess
+
+cmd = "grep Seccomp /proc/*/status | grep -v 0 | cut -d '/' -f3"
+
+my_process = subprocess.Popen(cmd, shell=True,
+                              universal_newlines=True, stdout=subprocess.PIPE)
+process_list = my_process.communicate()[0]
+process_total = len(process_list.split())
+
+print(process_total)

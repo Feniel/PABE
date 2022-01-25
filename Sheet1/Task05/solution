@@ -1,0 +1,13 @@
+#! /usr/bin/env python3
+
+import subprocess
+
+# compile fixed.c
+subprocess.run(["gcc", "fixed.c", "-o", "fixed"])
+
+# execute fixed with "PABE" as argument
+sub = subprocess.run(["./fixed", "PABE"], stdout=subprocess.PIPE)
+
+# capture output and extract the secret
+secret = str(sub.stdout).split("'")
+print(secret[1])

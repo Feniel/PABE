@@ -1,0 +1,49 @@
+#! /usr/bin/env python3
+
+'''
+The first step is to reverse engineer the code and the relevant function is FUN_001011cb:
+(For better comprehensibility, some functions or names have already been renamed here)
+
+undefined8 FUN_001011cb(int argc,long param_2)
+{
+  size_t sVar1;
+  
+  signal(0xb,FUN_00101185);
+  if (((1 < argc) && (*(char *)(*(long *)(param_2 + 8) + 9) == 'x')) &&
+     (sVar1 = strlen(*(char **)(param_2 + 8)), (sVar1 & 3) == 0)) {
+    FUN_001011a9(*(undefined8 *)(param_2 + 8));
+    printf("Thanks! Your string is: %s",*(undefined8 *)(param_2 + 8));
+  }
+  return 0;
+}
+
+The signal calls an output with the function FUN_00101185 which displays the flag.
+If you search online for the 0xb signal, the sigsegv category comes up.
+Signals are standardized messages sent to a running program to trigger specific behavior.
+Sigsegv are various causes of segmentation faults, but fundamentally, you are accessing memory incorrectly.
+Therefore we need to read or write from/to a memory area that your process does not have access to so the signal is triggered and our funkction is called.
+
+The function FUN_001011a9 is called before the printf.
+
+void FUN_001011a9(char *param_1)
+{
+  char local_18 [16];
+  
+  strcpy(local_18,param_1);
+  return;
+}
+
+As the variable is local and has the size of 16 we just need to use a string of the length 16 or greater.
+That should then trigger a buffer overflow.
+
+To give the function the right string we need to fulfil the if querys which are basically three sub-queries.
+The first one is trivial because with one argument we already increase the length of this one to two.
+(*(char *)(*(long *)(param_2 + 8) + 9) is as long+8 casted to a pointer of char* basically the call (char*)param_2[1]
+So (char*)param_2[1] + 9 = (char*)param_2[1][9] means the 10th element of the first argument must be an 'x'.
+The last one writes the length of the string in sVar1 and then checks with (sVar1 & 3) == 0 if its times 4.
+
+So our string consists of every char as a placeholder up to 10th, which must be an x, and then another 6 to be divisible by 4 and be at least 16 long => 'AAAAAAAAAxAAAAAA'
+'''
+
+import subprocess
+subprocess.call(["./simple_bo", "AAAAAAAAAxAAAAAA"])

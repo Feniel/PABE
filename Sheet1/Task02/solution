@@ -1,0 +1,23 @@
+#! /usr/bin/env python3
+
+import sys
+from elftools.elf.elffile import ELFFile
+from elftools.elf.sections import Section
+from elftools.elf.sections import SymbolTableSection
+from elftools.elf.segments import Segment
+
+#own parser
+header = bytearray(open('parseme', 'rb').read())
+
+print("placeholder")
+
+#pyelftools library
+elffile = ELFFile(open('parseme', 'rb'))
+
+for section in elffile.iter_sections():
+    if not isinstance(section, SymbolTableSection):
+         continue
+
+    for cnt, symbol in enumerate(section.iter_symbols()):
+        if symbol.name == 'flag':
+            print('0000000' + hex(symbol['st_value']))

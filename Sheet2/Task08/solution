@@ -1,0 +1,24 @@
+#! /usr/bin/env python3
+
+# Program header table: 3
+# -----------------------
+# P_TYPE         0x00000094     0x00000001          PT_LOAD (Loadable segment)
+# P_FLAGS        0x000000AC     0x00000000                                          #flag was not set
+# P_OFFSET       0x00000098     0x00001000                                          #readelf shows that Execute|Read (0x00000005) should be set here
+# P_VADDR        0x0000009C     0x00001000          
+# P_PADDR        0x000000A0     0x00001000          
+# P_FILESZ       0x000000A4     0x0000025C          
+# P_MEMSZ        0x000000A8     0x0000025C          
+# P_ALIGN        0x000000B0     0x00001000  
+
+import subprocess
+
+#r+b as we need to read update the binary file
+reader = open("broken", "r+b")
+
+reader.seek(0x000000AC) #we use readelf to find the correct offset
+toWrite = b'\x05' #flag was not set so we change it to 5 (execute/read)
+reader.write(toWrite) #execute the change
+
+reader.close() 
+subprocess.call(["./broken"]) #print flag

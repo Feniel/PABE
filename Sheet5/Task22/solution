@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+from subprocess import run, PIPE
+
+def main():
+    process = run(['gdb', '-q', f'--command={Path("gdb_heap_vis.py").absolute()}', Path('./malloc_and_free').absolute()], stdout=PIPE)
+
+    print(process.stdout.decode("utf-8"))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,14 @@
+#! /usr/bin/env python3
+
+import subprocess
+
+# run gdb with our python script and suppress output and stderr
+# -n => ignore .gdbinit (use vanilla gdb)
+exec = subprocess.run(["gdb", "-batch-silent", "-x", "-n",
+                      "gdbScript.py", "extractme"], stderr=subprocess.DEVNULL)
+
+# open the generated file and print its contents
+f = open('temp_key_file.txt', 'r')
+file_contents = f.read()
+print(file_contents)
+f.close()

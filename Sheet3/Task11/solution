@@ -1,0 +1,55 @@
+#! /usr/bin/env python3
+
+from z3 import *
+
+solver = Solver()
+
+#create 32 integer variables as the first if checks for this length
+key = Ints('1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32')
+
+#we check every char to be A-Z or a-z or 0-9
+for position in range(0,32):   
+    solver.add(Or(  (And (key[position] >= ord('A') ,key[position] <= ord('Z'))),
+                    (And (key[position] >= ord('a') ,key[position] <= ord('z'))),
+                    (And (key[position] >= ord('0') ,key[position] <= ord('9')))
+        )
+    )
+
+#add the conditions from the if queries
+solver.add(key[1] >= key[0] -2)
+solver.add(key[2] >= key[1] -2)
+solver.add(key[3] >= key[2] -2)
+solver.add(key[4] >  key[3] +9)
+solver.add(key[5] >  key[4] +9)
+solver.add(key[6] >  key[5] +9)
+solver.add(key[7] >= key[6] -5)
+solver.add(key[8] >= key[7] -5)
+solver.add(key[9] >= key[8] -5)
+solver.add(key[0]*2 >= key[31])
+solver.add(key[1]*2 >= key[30])
+solver.add(key[2]*2 >= key[29])
+
+#from 16 to 32 position on the key
+#here 15 to 31 as we start with 0
+#and we habe a posiition+1 statement
+#the following passage of the current variable
+#must be smaller
+for position in range(15,31):
+    solver.add(key[position]<key[position+1])
+
+#each even position of the key 
+#summed up must be
+#modulo 2 equal to 0
+sum = 0 #var to sum up
+for position in range(0,32):
+    if position % 2 == 0:
+        sum = key[position]
+solver.add(sum % 2 == 0)
+
+#the solver is concluded here
+solver.check()
+solution = solver.model()
+
+#here the key is brought in the demanded format
+for position in range(0,32):
+    print(chr(solution[key[position]].as_long()), end='')

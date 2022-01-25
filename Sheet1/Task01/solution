@@ -1,0 +1,58 @@
+#! /usr/bin/env python3
+
+import sys
+import subprocess
+
+#header length in bytes
+headerLength = 64
+
+def printBinary(a):
+    bnr = bin(a).replace('0b','')
+    x = bnr[::-1] #this reverses an array
+    while len(x) < 8:
+        x += '0'
+    bnr = x[::-1]
+    print(bnr)
+
+def printStd(*a):
+    print(*a, file = sys.stdout) 
+
+def xorHeader(source_file, target_file, tmp):
+    #we read the header bytes
+    data = bytearray(open(source_file, 'rb').read(headerLength))
+    #iterate through it
+    for i in range(len(data)):
+        #xor with the found key
+        data[i] ^= tmp
+    #write it into the new file
+    open(target_file, 'wb').write(data)     
+
+with open('fixme', 'rb') as reader:
+    #for finding the key
+    encryptedMByte = (reader.read(1))
+    #for later appending
+    body = (reader.read())
+ 
+#we assume the executable has the same magic bytes in beginning
+magicBytes = [0x7f,0x45,0x4c,0x46]
+
+#the key is determint here as cipher xor plain = key
+tmp = hex(magicBytes[0] ^ encryptedMByte[0])
+key = int(tmp, 16)
+printStd("key: " + hex(key))
+
+#the text is decrypted here
+xorHeader('fixme','fixed',key)
+printStd("The encrypted header file was created")
+#append rest of the file to the encrypted header
+with open('fixme', 'rb') as target_file:
+    with open('fixed', 'ab') as source_file:
+        source_file.write(target_file.read()[headerLength:])
+
+#debug
+with open('fixed', 'rb') as reader:
+    printStd( (reader.read()) )
+
+#use subprocess to run encrypted executable
+output = subprocess.run(["./fixed"],capture_output=True)
+printStd(output)

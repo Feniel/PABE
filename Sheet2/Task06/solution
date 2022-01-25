@@ -1,0 +1,32 @@
+#! /usr/bin/env python3
+
+#the key must be 32 characters long [12]
+#the key must consist of capital alpha chars A-Z [13-17]
+#the last letter +4 must be smaller then the first [18]
+#sum of all chars together must be odd [19-28]
+
+baseKey = "FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+keyList = list(baseKey) #change to list for better access
+
+#we can change all chars between the first and last one
+#therefore we increase a pair by one
+
+firstLetter = 'B'
+secondLetter = 'D'  #take different letters to be sure no key is a duplicate
+                    #still chose B=2 and D=4 so its odd
+
+#main=25 and variable=20 so we have 500 keys (25*20)
+for mainLetterPosition in range(1,27):
+
+    tmpKeyAfterMain = keyList.copy() #copy base key
+    tmpKeyAfterMain[mainLetterPosition] = firstLetter #change the first letter
+
+    tmpKeyAfterVariable = tmpKeyAfterMain.copy() #copy it for second letter
+
+    for variableLetterPosition in range(1,21):
+        if mainLetterPosition != variableLetterPosition: #when both counter are at the same position, we lose 20 here but we have 26 rounds so this adds up
+            tmpKeyAfterVariable[variableLetterPosition] = secondLetter #set the second letter
+
+            print("".join(tmpKeyAfterVariable))
+            tmpKeyAfterVariable = tmpKeyAfterMain.copy() #reset key to main so we dont override
+
